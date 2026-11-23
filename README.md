@@ -32,6 +32,7 @@ This installs:
 - `uvicorn>=0.20.0` - ASGI server
 - `jinja2>=3.1.0` - Template engine
 - `protobuf>=4.21.0` - Protocol Buffer runtime
+- `httpx>=0.24.0` - HTTP client used by the gateway tests
 
 ### 2. Compile Protocol Buffers
 
@@ -113,10 +114,10 @@ ecommerce-microservices/
 │   ├── product.proto                # Product Catalog Service contract
 │   └── order.proto                  # Order Service contract
 ├── gateway/                         # Web Gateway (FastAPI)
-│   ├── main.py                      # FastAPI application (to be created)
+│   ├── main.py                      # FastAPI application
 │   └── templates/                   # Jinja2 HTML templates
-│       ├── index.html               # Storefront page (to be created)
-│       └── orders.html              # Order history page (to be created)
+│       ├── index.html               # Storefront page
+│       └── orders.html              # Order history page
 ├── product_catalog_service.py       # Product Catalog gRPC service
 ├── order_service.py                 # Order gRPC service
 ├── product_pb2.py                   # Generated: Product messages
@@ -146,11 +147,14 @@ Storage mode can be configured in the service files.
 
 ## Testing
 
-Run unit tests (if implemented):
+Run the backend and gateway unit tests:
 
 ```bash
 pytest
 ```
+
+The suite covers the Product Catalog Service, Order Service, and the FastAPI
+gateway endpoints (gRPC stubs are mocked, so no services need to be running).
 
 ## Troubleshooting
 

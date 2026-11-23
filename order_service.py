@@ -367,7 +367,7 @@ class OrderServiceServicer(order_pb2_grpc.OrderServiceServicer):
         
         logger.info(
             f"Order created successfully: order_id={order_id}, "
-            f"item_count={len(product_details)}, total={total:.2f}"
+            f"{len(product_details)} items, total={total:.2f}"
         )
         
         # Return success response

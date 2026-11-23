@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shop - E-Commerce Storefront</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+    <!-- Toast / message banner -->
+    <div id="message-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[60] w-full max-w-lg px-4 hidden">
+        <div id="message" class="rounded-lg px-4 py-3 shadow-lg text-sm font-medium"></div>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between gap-4">
+            <a href="/" class="text-xl font-bold text-blue-600 whitespace-nowrap">Shop</a>
+            <div class="flex-1 max-w-md">
+                <input id="search-input" type="text" placeholder="Search products..."
+                       class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div class="flex items-center gap-3">
+                <a href="/orders" class="text-sm font-medium text-gray-600 hover:text-blue-600 whitespace-nowrap">Order History</a>
+                <button id="cart-toggle" type="button"
+                        class="relative bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg">
+                    Cart
+                    <span id="cart-count"
+                          class="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 min-w-[1.25rem] px-1 flex items-center justify-center hidden">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold">Products</h1>
+            <p class="text-gray-500 text-sm">Browse our catalog and add items to your cart.</p>
+        </div>
+
+        <div id="loading" class="text-center py-16 text-gray-500">Loading products...</div>
+        <div id="products" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+        <div id="no-products" class="hidden text-center py-16 text-gray-500">No products match your search.</div>
+    </main>
+
+    <!-- Cart overlay -->
+    <div id="cart-overlay" class="fixed inset-0 bg-black/40 z-40 hidden"></div>
+
+    <!-- Cart slide-over panel -->
+    <aside id="cart-panel"
+           class="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
+        <div class="flex items-center justify-between px-5 py-4 border-b">
+            <h2 class="text-lg font-bold">Shopping Cart</h2>
+            <button id="cart-close" type="button" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div id="cart-items" class="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            <p class="text-gray-500 text-sm">Your cart is empty.</p>
+        </div>
+
+        <div class="border-t px-5 py-4 space-y-3">
+            <div class="flex items-center justify-between text-base font-semibold">
+                <span>Total</span>
+                <span id="cart-total">$0.00</span>
+            </div>
+            <button id="checkout-btn" type="button" disabled
+                    class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-2 px-4 rounded-lg">
+                Checkout
+            </button>
+        </div>
+    </aside>
+
+    <script>
+        let products = [];
+        let cart = {};
+
+        const productsEl = document.getElementById('products');
+        const loadingEl = document.getElementById('loading');
+        const noProductsEl = document.getElementById('no-products');
+        const searchInput = document.getElementById('search-input');
+        const cartPanel = document.getElementById('cart-panel');
+        const cartOverlay = document.getElementById('cart-overlay');
+        const cartItemsEl = document.getElementById('cart-items');
+        const cartTotalEl = document.getElementById('cart-total');
+        const cartCountEl = document.getElementById('cart-count');
+        const checkoutBtn = document.getElementById('checkout-btn');
+        const messageContainer = document.getElementById('message-container');
+        const messageEl = document.getElementById('message');
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatPrice(value) {
+            return Number(value || 0).toFixed(2);
+        }
+
+        function showMessage(text, type) {
+            messageEl.textContent = text;
+            messageEl.className = 'rounded-lg px-4 py-3 shadow-lg text-sm font-medium ' +
+                (type === 'success'
+                    ? 'bg-green-100 text-green-800 border border-green-300'
+                    : 'bg-red-100 text-red-800 border border-red-300');
+            messageContainer.classList.remove('hidden');
+            clearTimeout(showMessage._timer);
+            showMessage._timer = setTimeout(() => messageContainer.classList.add('hidden'), 6000);
+        }
+
+        function showError(text) {
+            showMessage(text, 'error');
+        }
+
+        function showSuccess(text) {
+            showMessage(text, 'success');
+        }
+
+        async function loadProducts() {
+            loadingEl.classList.remove('hidden');
+            try {
+                const response = await fetch('/api/products', { signal: AbortSignal.timeout(10000) });
+                if (!response.ok) {
+                    let message = 'Unable to load products. Please try again later.';
+                    try {
+                        const body = await response.json();
+                        if (body && body.message) message = body.message;
+                    } catch (ignored) { /* keep default message */ }
+                    throw new Error(message);
+                }
+                products = await response.json();
+                renderProducts(products);
+            } catch (error) {
+                productsEl.innerHTML = '';
+                noProductsEl.classList.add('hidden');
+                showError(error && error.message ? error.message : 'Unable to load products. Please try again later.');
+            } finally {
+                loadingEl.classList.add('hidden');
+            }
+        }
+
+        function renderProducts(list) {
+            const query = searchInput.value.trim().toLowerCase();
+            const filtered = list.filter(function (product) {
+                if (!query) return true;
+                return String(product.name).toLowerCase().includes(query) ||
+                    String(product.description || '').toLowerCase().includes(query);
+            });
+
+            if (filtered.length === 0) {
+                productsEl.innerHTML = '';
+                noProductsEl.classList.remove('hidden');
+                return;
+            }
+            noProductsEl.classList.add('hidden');
+
+            productsEl.innerHTML = filtered.map(function (product) {
+                const outOfStock = product.stock <= 0;
+                const badge = outOfStock
+                    ? '<span class="bg-red-100 text-red-800 text-xs font-semibold px-2 py-1 rounded">Out of Stock</span>'
+                    : '<span class="bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded">' +
+                        escapeHtml(product.stock) + ' in stock</span>';
+                const button = outOfStock
+                    ? '<button type="button" disabled class="w-full bg-gray-300 text-gray-500 font-semibold py-2 px-4 rounded-lg cursor-not-allowed">Add to Cart</button>'
+                    : '<button type="button" data-add="' + escapeHtml(product.id) + '" class="add-to-cart w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg">Add to Cart</button>';
+
+                return '' +
+                    '<article class="border rounded-lg shadow-md hover:shadow-lg bg-white overflow-hidden flex flex-col">' +
+                        '<img src="' + escapeHtml(product.image_url) + '" alt="' + escapeHtml(product.name) + '" class="w-full h-48 object-cover bg-gray-100" />' +
+                        '<div class="p-4 flex flex-col flex-1">' +
+                            '<div class="flex items-start justify-between gap-2 mb-2">' +
+                                '<h3 class="text-lg font-semibold">' + escapeHtml(product.name) + '</h3>' +
+                                badge +
+                            '</div>' +
+                            '<p class="text-sm text-gray-600 flex-1">' + escapeHtml(product.description) + '</p>' +
+                            '<div class="mt-4 flex items-center justify-between">' +
+                                '<span class="text-xl font-bold text-gray-900">$' + formatPrice(product.price) + '</span>' +
+                            '</div>' +
+                            '<div class="mt-3">' + button + '</div>' +
+                        '</div>' +
+                    '</article>';
+            }).join('');
+
+            productsEl.querySelectorAll('[data-add]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    const id = btn.getAttribute('data-add');
+                    const product = products.find(function (p) { return p.id === id; });
+                    if (product) addToCart(product);
+                });
+            });
+        }
+
+        function addToCart(product) {
+            if (!product || product.stock <= 0) return;
+
+            if (cart[product.id]) {
+                if (cart[product.id].quantity < product.stock) {
+                    cart[product.id].quantity += 1;
+                } else {
+                    showError('Only ' + product.stock + ' available');
+                    return;
+                }
+            } else {
+                cart[product.id] = { product: product, quantity: 1 };
+            }
+
+            updateCartUI();
+        }
+
+        function removeFromCart(productId) {
+            delete cart[productId];
+            updateCartUI();
+        }
+
+        function updateCartUI() {
+            const entries = Object.values(cart);
+
+            if (entries.length === 0) {
+                cartItemsEl.innerHTML = '<p class="text-gray-500 text-sm">Your cart is empty.</p>';
+                cartTotalEl.textContent = '$0.00';
+                cartCountEl.classList.add('hidden');
+                checkoutBtn.disabled = true;
+                return;
+            }
+
+            let total = 0;
+            cartItemsEl.innerHTML = entries.map(function (entry) {
+                const product = entry.product;
+                const lineTotal = entry.quantity * Number(product.price);
+                total += lineTotal;
+                return '' +
+                    '<div class="flex items-start justify-between gap-3 border-b pb-3">' +
+                        '<div class="min-w-0">' +
+                            '<p class="font-medium truncate">' + escapeHtml(product.name) + '</p>' +
+                            '<p class="text-xs text-gray-500">$' + formatPrice(product.price) + ' each</p>' +
+                            '<p class="text-sm mt-1">Qty: ' + escapeHtml(entry.quantity) + '</p>' +
+                        '</div>' +
+                        '<div class="text-right shrink-0">' +
+                            '<p class="font-semibold">$' + formatPrice(lineTotal) + '</p>' +
+                            '<button type="button" data-remove="' + escapeHtml(product.id) + '" class="text-xs text-red-600 hover:underline mt-1">Remove</button>' +
+                        '</div>' +
+                    '</div>';
+            }).join('');
+
+            cartItemsEl.querySelectorAll('[data-remove]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    removeFromCart(btn.getAttribute('data-remove'));
+                });
+            });
+
+            const count = entries.reduce(function (sum, entry) { return sum + entry.quantity; }, 0);
+            cartCountEl.textContent = count;
+            cartCountEl.classList.remove('hidden');
+            cartTotalEl.textContent = '$' + formatPrice(total);
+            checkoutBtn.disabled = false;
+        }
+
+        function openCart() {
+            cartPanel.classList.remove('translate-x-full');
+            cartOverlay.classList.remove('hidden');
+        }
+
+        function closeCart() {
+            cartPanel.classList.add('translate-x-full');
+            cartOverlay.classList.add('hidden');
+        }
+
+        async function checkout() {
+            const entries = Object.values(cart);
+            if (entries.length === 0) return;
+
+            const items = entries.map(function (entry) {
+                return { product_id: entry.product.id, quantity: entry.quantity };
+            });
+
+            checkoutBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ items: items }),
+                    signal: AbortSignal.timeout(15000)
+                });
+
+                if (response.ok) {
+                    const order = await response.json();
+                    showSuccess('Order ' + order.order_id + ' placed successfully!');
+                    cart = {};
+                    updateCartUI();
+                    closeCart();
+                    loadProducts();
+                    return;
+                }
+
+                let body = null;
+                try { body = await response.json(); } catch (ignored) { body = null; }
+
+                if (response.status === 412) {
+                    const outOfStock = (body && body.out_of_stock) ? body.out_of_stock : [];
+                    const names = outOfStock.map(function (id) {
+                        const entry = cart[id];
+                        return entry ? entry.product.name : id;
+                    });
+                    showError('Out of stock: ' + (names.length ? names.join(', ') : 'one or more items'));
+                } else if (response.status === 503) {
+                    showError('Service temporarily unavailable. Please try again later.');
+                } else if (body && body.message) {
+                    showError(body.message);
+                } else {
+                    showError('Failed to place order. Please try again.');
+                }
+            } catch (error) {
+                if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+                    showError('Request timed out. Please try again.');
+                } else {
+                    showError('An error occurred. Please try again.');
+                }
+            } finally {
+                if (Object.keys(cart).length > 0) {
+                    checkoutBtn.disabled = false;
+                }
+            }
+        }
+
+        document.getElementById('cart-toggle').addEventListener('click', openCart);
+        document.getElementById('cart-close').addEventListener('click', closeCart);
+        cartOverlay.addEventListener('click', closeCart);
+        checkoutBtn.addEventListener('click', checkout);
+        searchInput.addEventListener('input', function () { renderProducts(products); });
+
+        loadProducts();
+    </script>
+</body>
+</html>

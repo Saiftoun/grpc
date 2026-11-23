@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order History - E-Commerce</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+    <header class="bg-white shadow-sm sticky top-0 z-30">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+            <a href="/" class="text-xl font-bold text-blue-600">Shop</a>
+            <a href="/" class="text-sm font-medium text-gray-600 hover:text-blue-600">&larr; Back to Storefront</a>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold">Order History</h1>
+            <p class="text-gray-500 text-sm">All orders placed through the storefront.</p>
+        </div>
+
+        <div id="loading" class="text-center py-16 text-gray-500">Loading orders...</div>
+        <div id="error" class="hidden bg-red-100 text-red-800 border border-red-300 rounded-lg px-4 py-3 text-sm font-medium"></div>
+        <div id="empty" class="hidden text-center py-16 text-gray-500">No orders yet</div>
+        <div id="orders" class="space-y-6"></div>
+    </main>
+
+    <script>
+        const loadingEl = document.getElementById('loading');
+        const errorEl = document.getElementById('error');
+        const emptyEl = document.getElementById('empty');
+        const ordersEl = document.getElementById('orders');
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatPrice(value) {
+            return Number(value || 0).toFixed(2);
+        }
+
+        function showError(text) {
+            errorEl.textContent = text;
+            errorEl.classList.remove('hidden');
+        }
+
+        function renderOrders(orders) {
+            ordersEl.innerHTML = orders.map(function (order) {
+                const items = Array.isArray(order.items) ? order.items : [];
+                const rows = items.map(function (item) {
+                    const lineTotal = Number(item.quantity) * Number(item.unit_price);
+                    return '' +
+                        '<tr class="border-b last:border-b-0">' +
+                            '<td class="py-2 pr-4">' + escapeHtml(item.product_name) + '</td>' +
+                            '<td class="py-2 px-4 text-center">' + escapeHtml(item.quantity) + '</td>' +
+                            '<td class="py-2 px-4 text-right">$' + formatPrice(item.unit_price) + '</td>' +
+                            '<td class="py-2 pl-4 text-right">$' + formatPrice(lineTotal) + '</td>' +
+                        '</tr>';
+                }).join('');
+
+                return '' +
+                    '<article class="border rounded-lg shadow-md bg-white overflow-hidden">' +
+                        '<div class="px-5 py-4 bg-gray-50 border-b flex flex-wrap items-center justify-between gap-2">' +
+                            '<div>' +
+                                '<p class="text-xs uppercase tracking-wide text-gray-500">Order ID</p>' +
+                                '<p class="font-mono text-sm break-all">' + escapeHtml(order.order_id) + '</p>' +
+                            '</div>' +
+                            '<div class="text-right">' +
+                                '<p class="text-xs uppercase tracking-wide text-gray-500">Placed</p>' +
+                                '<p class="text-sm">' + escapeHtml(order.timestamp) + '</p>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="px-5 py-4 overflow-x-auto">' +
+                            '<table class="w-full text-sm">' +
+                                '<thead>' +
+                                    '<tr class="text-gray-500 border-b">' +
+                                        '<th class="text-left font-medium py-2 pr-4">Product</th>' +
+                                        '<th class="text-center font-medium py-2 px-4">Qty</th>' +
+                                        '<th class="text-right font-medium py-2 px-4">Unit Price</th>' +
+                                        '<th class="text-right font-medium py-2 pl-4">Line Total</th>' +
+                                    '</tr>' +
+                                '</thead>' +
+                                '<tbody>' + rows + '</tbody>' +
+                            '</table>' +
+                        '</div>' +
+                        '<div class="px-5 py-3 border-t flex items-center justify-end gap-3">' +
+                            '<span class="text-sm text-gray-500">Total</span>' +
+                            '<span class="text-lg font-bold">$' + formatPrice(order.total) + '</span>' +
+                        '</div>' +
+                    '</article>';
+            }).join('');
+        }
+
+        async function loadOrders() {
+            loadingEl.classList.remove('hidden');
+            errorEl.classList.add('hidden');
+            emptyEl.classList.add('hidden');
+            ordersEl.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/orders', { signal: AbortSignal.timeout(30000) });
+
+                if (!response.ok) {
+                    if (response.status === 503) {
+                        showError('Order service is currently unavailable. Please try again later.');
+                    } else {
+                        showError('An error occurred while loading orders. Please try again.');
+                    }
+                    return;
+                }
+
+                const orders = await response.json();
+
+                if (!Array.isArray(orders) || orders.length === 0) {
+                    emptyEl.classList.remove('hidden');
+                    return;
+                }
+
+                renderOrders(orders);
+            } catch (error) {
+                if (error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+                    showError('Request timed out. Please try again.');
+                } else if (error instanceof SyntaxError) {
+                    showError('Failed to load order data. Please refresh the page.');
+                } else {
+                    showError('An error occurred while loading orders. Please try again.');
+                }
+            } finally {
+                loadingEl.classList.add('hidden');
+            }
+        }
+
+        loadOrders();
+    </script>
+</body>
+</html>
